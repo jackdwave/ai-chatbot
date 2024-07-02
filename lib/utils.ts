@@ -89,3 +89,57 @@ export const getMessageFromCode = (resultCode: string) => {
 }
 
 export const isObjectEmpty = (value: Object) => JSON.stringify(value) === '{}'
+
+interface FormatSecondsConfig {
+  includeHours?: boolean
+}
+
+export function formatSeconds(
+  s: number,
+  { includeHours }: FormatSecondsConfig = {}
+): string {
+  const dateObj = new Date(s * 1000)
+
+  const hours = dateObj.getUTCHours()
+  const minutes = dateObj.getUTCMinutes()
+  const seconds = dateObj.getSeconds()
+
+  const hourString = hours.toString().padStart(2, '0')
+  const timeString =
+    minutes.toString().padStart(2, '0') +
+    ':' +
+    seconds.toString().padStart(2, '0')
+
+  const result = includeHours ? `${hourString}:${timeString}` : timeString
+
+  return result
+}
+
+export function convertNanoTimestampToMilliTimestamp(
+  nanoTimestamp: number
+): number {
+  const millisecondsTimestamp = nanoTimestamp / 1000000 // Convert nanoseconds to milliseconds
+
+  return millisecondsTimestamp
+}
+
+interface TimeStampDifferenceConfig {
+  thresholdInMinutes?: number
+}
+
+export function isTimestampDifferenceBeyondThreshold(
+  timestamp1: number,
+  timestamp2: number,
+  { thresholdInMinutes }: TimeStampDifferenceConfig = {}
+) {
+  const timeoutInMinutes =
+    thresholdInMinutes || Number(process.env.TIMEOUT_IN_MINUTES || 5)
+
+  const timeoutInMilliseconds = timeoutInMinutes * 60 * 1000
+
+  // Calculate the absolute difference between the two timestamps
+  const timeDifference = Math.abs(timestamp1 - timestamp2)
+
+  // Check if the time difference is greater than one hour
+  return timeDifference > timeoutInMilliseconds
+}

@@ -44,6 +44,11 @@ export function ChatPanel({
       heading: 'I want to',
       subheading: 'fetch youtube video in seconds',
       message: `I want to get youtube video in seconds.`
+    },
+    {
+      heading: 'I want to',
+      subheading: 'create a new voice conversion workflow',
+      message: `I want to create a new voice conversion workflow.`
     }
   ]
 

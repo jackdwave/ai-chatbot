@@ -4,7 +4,6 @@ import {
   createAI,
   createStreamableUI,
   getMutableAIState,
-  getAIState,
   streamUI,
   createStreamableValue
 } from 'ai/rsc'
@@ -21,23 +20,20 @@ import {
 } from '@/components/stocks'
 
 import { z } from 'zod'
-import { EventsSkeleton } from '@/components/stocks/events-skeleton'
 import { Events } from '@/components/stocks/events'
 import { StocksSkeleton } from '@/components/stocks/stocks-skeleton'
 import { Stocks } from '@/components/stocks/stocks'
-import { StockSkeleton } from '@/components/stocks/stock-skeleton'
 import {
-  formatNumber,
   runAsyncFnWithoutBlocking,
   sleep,
   nanoid,
-  isObjectEmpty
+  isObjectEmpty,
+  convertNanoTimestampToMilliTimestamp,
+  isTimestampDifferenceBeyondThreshold
 } from '@/lib/utils'
-import { saveChat } from '@/app/actions'
 import { SpinnerMessage, UserMessage } from '@/components/stocks/message'
 import { Chat, Message } from '@/lib/types'
 import { AZURE_DEPLOYMENT_NAME, AZURE_RESOURCE_NAME } from '@/lib/constant'
-import { auth } from '@/auth'
 
 import {
   fetchYoutubeDuration,
@@ -49,6 +45,11 @@ import ConversionPage from '@/components/ConversionPage'
 import { fetchEvent } from '@/lib/apis/event'
 import { PartialEventResponse } from '@/lib/models/Event'
 import { downloadFile } from '../apis/download'
+import { ConversionUI } from '@/components/ConversionUI'
+import { addWorkflow } from '../apis/workflow'
+import { WorkflowAdder } from '../models/Workflow'
+
+import FetchConversionResult from '@/components/ConversionUI/fetch-conversion-result'
 
 const azureApiKey = process.env['AZURE_OPENAI_API_KEY']
 
@@ -65,75 +66,73 @@ const renderErrorUI = (id: string) => {
   )
 }
 
-// async function confirmPurchase(symbol: string, price: number, amount: number) {
-//   'use server'
+const renderProcessingUI = () => {
+  return (
+    <BotCard>
+      <div className="inline-flex items-start gap-1 md:items-center mb-2">
+        {spinner}
+        <p>Fetching...</p>
+      </div>
+    </BotCard>
+  )
+}
 
-//   const aiState = getMutableAIState<typeof AI>()
+async function startConversion(workflowAdder: WorkflowAdder) {
+  'use server'
 
-//   const purchasing = createStreamableUI(
-//     <div className="inline-flex items-start gap-1 md:items-center">
-//       {spinner}
-//       <p className="mb-2">
-//         Purchasing {amount} ${symbol}...
-//       </p>
-//     </div>
-//   )
+  const aiState = getMutableAIState<typeof AI>()
 
-//   const systemMessage = createStreamableUI(null)
+  const converting = createStreamableUI(
+    <div className="inline-flex items-start gap-1 md:items-center mb-2">
+      {spinner}
+      <p>Converting...</p>
+    </div>
+  )
 
-//   runAsyncFnWithoutBlocking(async () => {
-//     await sleep(1000)
+  const { event_id } = await addWorkflow(workflowAdder)
 
-//     purchasing.update(
-//       <div className="inline-flex items-start gap-1 md:items-center">
-//         {spinner}
-//         <p className="mb-2">
-//           Purchasing {amount} ${symbol}... working on it...
-//         </p>
-//       </div>
-//     )
+  const systemMessage = createStreamableUI(null)
 
-//     await sleep(1000)
+  runAsyncFnWithoutBlocking(async () => {
+    await sleep(3000)
 
-//     purchasing.done(
-//       <div>
-//         <p className="mb-2">
-//           You have successfully purchased {amount} ${symbol}. Total cost:{' '}
-//           {formatNumber(amount * price)}
-//         </p>
-//       </div>
-//     )
+    converting.done(
+      <FetchConversionResult
+        conversionId={event_id}
+        sourceUrl={workflowAdder.sourceUrl}
+        voiceConversionModel={workflowAdder.voiceConversionModel}
+      />
+    )
 
-//     systemMessage.done(
-//       <SystemMessage>
-//         You have purchased {amount} shares of {symbol} at ${price}. Total cost ={' '}
-//         {formatNumber(amount * price)}.
-//       </SystemMessage>
-//     )
+    systemMessage.done(
+      <SystemMessage>
+        You have created voice conversion workflow with id: {event_id}, youtube
+        video url: {workflowAdder.sourceUrl} using ai voice model:{' '}
+        {workflowAdder.voiceConversionModel}
+      </SystemMessage>
+    )
 
-//     aiState.done({
-//       ...aiState.get(),
-//       messages: [
-//         ...aiState.get().messages,
-//         {
-//           id: nanoid(),
-//           role: 'system',
-//           content: `[User has purchased ${amount} shares of ${symbol} at ${price}. Total cost = ${
-//             amount * price
-//           }]`
-//         }
-//       ]
-//     })
-//   })
+    aiState.done({
+      ...aiState.get(),
+      messages: [
+        ...aiState.get().messages,
+        {
+          id: nanoid(),
+          role: 'system',
+          content: `[User has successfully created voice conversion workflow with id: ${event_id}, youtube video url: ${workflowAdder.sourceUrl} using ai voice model: ${workflowAdder.voiceConversionModel}]`
+        }
+      ]
+    })
+  })
 
-//   return {
-//     purchasingUI: purchasing.value,
-//     newMessage: {
-//       id: nanoid(),
-//       display: systemMessage.value
-//     }
-//   }
-// }
+  return {
+    convertingUI: converting.value,
+    newMessage: {
+      id: nanoid(),
+      display: systemMessage.value
+    }
+  }
+}
 
 async function submitUserMessage(content: string) {
   'use server'
@@ -159,10 +158,13 @@ async function submitUserMessage(content: string) {
     model: azure(AZURE_DEPLOYMENT_NAME) as LanguageModel,
     initial: <SpinnerMessage />,
     system: `\
-    You are an AI music conversation bot and your main mission is to help users get youtube video length.
+    You are an AI music conversation bot and your main mission is to help users do voice conversion task using youtube videos.
+    By this I mean, users can provide a youtube link with A singer singing, and then our app will process this audio file to another B singer singing voice.
     
+    If the user requests to create a new voice conversion workflow, call \`show_voice_conversion_ui\` to show the VoiceConversion UI.
     If the user requests getting youtube video length, call \`get_youtube_length\` to get youtube video length in seconds.
-    
+    If the user wants to complete another impossible task, respond that you are a demo and cannot do that.
+
     Besides that, you can also chat with users and do some calculations if needed.`,
     messages: [
       ...aiState.get().messages.map((message: any) => ({
@@ -301,17 +303,25 @@ async function submitUserMessage(content: string) {
           await sleep(1000)
 
           let eventResponse: PartialEventResponse
-          let isEmptyResponse: boolean
+          let isEmptyResponse = true
+          let isSucceeded = false
+          let attemptsCount = 0
 
-          try {
-            eventResponse = await fetchEvent({ eventId: conversionId })
-            console.log('🚀 ~ timer=setTimeout ~ eventResponse:', eventResponse)
+          while (isEmptyResponse && attemptsCount < 8) {
+            try {
+              eventResponse = await fetchEvent({ eventId: conversionId })
+              console.log(
+                '🚀 ~ timer=setTimeout ~ eventResponse:',
+                eventResponse
+              )
+              isEmptyResponse = isObjectEmpty(eventResponse)
+            } catch (e) {
+              return renderErrorUI(conversionId)
+            }
 
-            isEmptyResponse = isObjectEmpty(eventResponse)
+            await sleep(5000)
 
-            if (isEmptyResponse) return renderErrorUI(conversionId)
-          } catch (e) {
-            return renderErrorUI(conversionId)
+            yield renderProcessingUI()
           }
 
           const toolCallId = nanoid()
@@ -349,67 +359,168 @@ async function submitUserMessage(content: string) {
             ]
           })
 
-          const totalJobCounts = eventResponse?.jobs?.length || 0
-          const finishedStepCounts = Object.keys(
-            eventResponse?.results || {}
-          ).length
-
-          const hasFinishedProcessing =
-            !isEmptyResponse && finishedStepCounts === totalJobCounts
-
-          const hasSucceed =
-            hasFinishedProcessing &&
-            eventResponse?.states?.every(state =>
-              isObjectEmpty(state?.exception || {})
-            )
-
-          if (hasSucceed) {
-            const sourceAudioLink =
-              eventResponse?.results?.step_5?.files?.[1]?.path ||
-              eventResponse?.results?.step_1?.files?.[0]?.path
-            // TODO: will break if there is more steps
-            const convertedAudioLink =
-              eventResponse?.results?.step_5?.files?.[0]?.path ||
-              eventResponse?.results?.step_4?.files?.[0]?.path
-
-            const modelLabel =
-              eventResponse?.results?.step_3?.files?.[0]?.label?.split(
-                '_'
-              )[0] || ''
-
-            const originUrl = eventResponse?.jobs?.[0]?.files?.[0]?.path || ''
-
+          while (!isSucceeded) {
             try {
-              const [sourceAudioUrl, convertedAudioUrl] = await Promise.all([
-                downloadFile({ file_path: sourceAudioLink || '' }),
-                downloadFile({ file_path: convertedAudioLink || '' })
-              ])
-
-              return (
-                <BotCard>
-                  <ConversionPage
-                    conversionId={conversionId}
-                    originUrl={originUrl}
-                    modelLabel={modelLabel}
-                    sourceAudioLink={sourceAudioUrl.download_url}
-                    convertedAudioLink={convertedAudioUrl.download_url}
-                  />
-                </BotCard>
+              eventResponse = await fetchEvent({ eventId: conversionId })
+              console.log(
+                '🚀 ~ timer=setTimeout ~ eventResponse:',
+                eventResponse
               )
-            } catch (error) {
-              console.error('Error downloading audio files:', error)
+
+              isEmptyResponse = isObjectEmpty(eventResponse)
+
+              const totalJobCounts = eventResponse?.jobs?.length || 0
+              const finishedStepCounts = Object.keys(
+                eventResponse?.results || {}
+              ).length
+
+              const hasFinishedProcessing =
+                !isEmptyResponse && finishedStepCounts === totalJobCounts
+
+              const hasFailed =
+                !isEmptyResponse &&
+                eventResponse?.states?.some(
+                  state => !isObjectEmpty(state?.exception || {})
+                )
+
+              const timestampInMilliseconds =
+                convertNanoTimestampToMilliTimestamp(
+                  eventResponse.start_time || 0
+                )
+
+              const isWorkflowProbablyFailed =
+                !isEmptyResponse &&
+                !hasFinishedProcessing &&
+                isTimestampDifferenceBeyondThreshold(
+                  timestampInMilliseconds || 0,
+                  Date.now()
+                )
+
+              if (hasFailed || isWorkflowProbablyFailed) {
+                return renderErrorUI(conversionId)
+              }
+
+              isSucceeded =
+                hasFinishedProcessing &&
+                !!eventResponse?.states?.every(state =>
+                  isObjectEmpty(state?.exception || {})
+                )
+
+              if (isSucceeded) {
+                const sourceAudioLink =
+                  eventResponse?.results?.step_5?.files?.[1]?.path ||
+                  eventResponse?.results?.step_1?.files?.[0]?.path
+                // TODO: will break if there is more steps
+                const convertedAudioLink =
+                  eventResponse?.results?.step_5?.files?.[0]?.path ||
+                  eventResponse?.results?.step_4?.files?.[0]?.path
+
+                const modelLabel =
+                  eventResponse?.results?.step_3?.files?.[0]?.label?.split(
+                    '_'
+                  )[0] || ''
+
+                const originUrl =
+                  eventResponse?.jobs?.[0]?.files?.[0]?.path || ''
+
+                try {
+                  const [sourceAudioUrl, convertedAudioUrl] = await Promise.all(
+                    [
+                      downloadFile({ file_path: sourceAudioLink || '' }),
+                      downloadFile({ file_path: convertedAudioLink || '' })
+                    ]
+                  )
+
+                  return (
+                    <BotCard>
+                      <ConversionPage
+                        conversionId={conversionId}
+                        originUrl={originUrl}
+                        modelLabel={modelLabel}
+                        sourceAudioLink={sourceAudioUrl.download_url}
+                        convertedAudioLink={convertedAudioUrl.download_url}
+                      />
+                    </BotCard>
+                  )
+                } catch (error) {
+                  console.error('Error downloading audio files:', error)
+                }
+              } else {
+                await sleep(5000)
+
+                yield (
+                  <BotCard>
+                    <div>conversion is processing, please try later</div>
+                  </BotCard>
+                )
+              }
+
+              if (isEmptyResponse) return renderErrorUI(conversionId)
+            } catch (e) {
+              return renderErrorUI(conversionId)
             }
-          } else {
-            return (
-              <BotCard>
-                <div>conversion is processing, please try later</div>
-              </BotCard>
-            )
           }
 
           return (
             <BotCard>
               <div>conversion id: {conversionId}</div>
+            </BotCard>
+          )
+        }
+      },
+      showVoiceConversionUI: {
+        description:
+          'Show voice conversion ui. Use this if the user wants to do voice conversion.',
+        parameters: z.object({
+          aiVoiceModel: z
+            .string()
+            .describe('The ai voice model. e.g. BrunoMars, LadyGaga'),
+          youtubeUrl: z.string().describe('The youtube video url')
+        }),
+        generate: async function* ({ aiVoiceModel, youtubeUrl }) {
+          const toolCallId = nanoid()
+
+          aiState.done({
+            ...aiState.get(),
+            messages: [
+              ...aiState.get().messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'tool-call',
+                    toolName: 'showVoiceConversionUI',
+                    toolCallId,
+                    args: { aiVoiceModel, youtubeUrl }
+                  }
+                ]
+              },
+              {
+                id: nanoid(),
+                role: 'tool',
+                content: [
+                  {
+                    type: 'tool-result',
+                    toolName: 'showVoiceConversionUI',
+                    toolCallId,
+                    result: {
+                      aiVoiceModel,
+                      youtubeUrl
+                    }
+                  }
+                ]
+              }
+            ]
+          })
+
+          return (
+            <BotCard>
+              <ConversionUI
+                props={{
+                  status: 'requires_action'
+                }}
+              />
             </BotCard>
           )
         }
@@ -435,7 +546,8 @@ export type UIState = {
 
 export const AI = createAI<AIState, UIState>({
   actions: {
-    submitUserMessage
+    submitUserMessage,
+    startConversion
   },
   initialUIState: [],
   initialAIState: { chatId: nanoid(), messages: [] }
