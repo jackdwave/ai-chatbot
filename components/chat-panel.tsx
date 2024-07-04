@@ -49,6 +49,11 @@ export function ChatPanel({
       heading: 'I want to',
       subheading: 'create a new voice conversion workflow',
       message: `I want to create a new voice conversion workflow.`
+    },
+    {
+      heading: 'I want to',
+      subheading: 'create a new captioner worker',
+      message: `I want to create a new captioner worker.`
     }
   ]
 

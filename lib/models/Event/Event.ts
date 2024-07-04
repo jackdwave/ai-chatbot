@@ -36,7 +36,7 @@ interface Job {
 
 interface ExtraFiles {}
 
-interface JobFile {
+export interface JobFile {
   label: string
   metadata: ExtraFiles
   path: string

@@ -43,13 +43,18 @@ import {
 
 import ConversionPage from '@/components/ConversionPage'
 import { fetchEvent } from '@/lib/apis/event'
-import { PartialEventResponse } from '@/lib/models/Event'
+import { JobFile, PartialEventResponse } from '@/lib/models/Event'
 import { downloadFile } from '../apis/download'
 import { ConversionUI } from '@/components/ConversionUI'
 import { addWorkflow } from '../apis/workflow'
 import { WorkflowAdder } from '../models/Workflow'
 
 import FetchConversionResult from '@/components/ConversionUI/fetch-conversion-result'
+import { CaptionerUI } from '@/components/CaptionerUI'
+import { addCaptionerWorker } from '../apis/worker'
+import { CaptionerWorkerAdder } from '../models/Worker'
+import { DownloadResponse } from '../models/Download'
+import Button from '@/components/button'
 
 const azureApiKey = process.env['AZURE_OPENAI_API_KEY']
 
@@ -120,6 +125,123 @@ async function startConversion(workflowAdder: WorkflowAdder) {
           id: nanoid(),
           role: 'system',
           content: `[User has successfully created voice conversion workflow with id: ${event_id}, youtube video url: ${workflowAdder.sourceUrl} using ai voice model: ${workflowAdder.voiceConversionModel}]`
+        }
+      ]
+    })
+  })
+
+  return {
+    convertingUI: converting.value,
+    newMessage: {
+      id: nanoid(),
+      display: systemMessage.value
+    }
+  }
+}
+
+async function startCaptioner(captionerWorkerAdder: CaptionerWorkerAdder) {
+  'use server'
+
+  const aiState = getMutableAIState<typeof AI>()
+
+  const converting = createStreamableUI(
+    <div className="inline-flex items-start gap-1 md:items-center mb-2">
+      {spinner}
+      <p>processing...</p>
+    </div>
+  )
+
+  let eventId = ''
+
+  try {
+    const { event_id } = await addCaptionerWorker(captionerWorkerAdder)
+    eventId = event_id
+  } catch (e) {
+    console.log('🚀 ~ startCaptioner ~ e:', e)
+  }
+
+  const systemMessage = createStreamableUI(null)
+
+  runAsyncFnWithoutBlocking(async () => {
+    await sleep(3000)
+
+    let ready = false
+    let attemptsCount = 0
+    let youtubeUrl = ''
+    const downloadUrls = []
+
+    while (!ready && attemptsCount < 8) {
+      try {
+        const data = (await fetchEvent({ eventId })) as any
+
+        if (data.results.captioner_job) {
+          ready = true
+
+          const files: JobFile[] = data.results.captioner_job.files
+
+          for (const file of files) {
+            const filePath = file.path
+            const res = await downloadFile({ file_path: filePath })
+
+            downloadUrls.push({
+              label: file.label,
+              downloadUrl: res.download_url
+            })
+          }
+        }
+
+        if (data.jobs) {
+          youtubeUrl = data.jobs[0].files[0].path
+        }
+      } catch (e) {
+        console.log('🚀 ~ runAsyncFnWithoutBlocking ~ e:', e)
+        return renderErrorUI(eventId)
+      }
+
+      await sleep(5000)
+    }
+
+    const youtubeEmbedUrl = getYoutubeEmbedLink(youtubeUrl)
+
+    converting.done(
+      <>
+        {youtubeEmbedUrl && (
+          <div className="mb-4 aspect-[1920/1080] w-full max-w-[850px] border-2">
+            <iframe
+              src={youtubeEmbedUrl}
+              // eslint-disable-next-line tailwindcss/enforces-shorthand
+              className="h-full w-full border-0"
+              allowFullScreen
+            />
+          </div>
+        )}
+
+        {downloadUrls.map(({ label, downloadUrl }) => (
+          <div key={label}>
+            <p>{label}</p>
+            <Button>
+              <a href={downloadUrl}> download</a>
+            </Button>
+          </div>
+        ))}
+      </>
+    )
+
+    systemMessage.done(
+      <SystemMessage>
+        You have created captioner workflow with id: {eventId}, youtube video
+        url: {captionerWorkerAdder.filePath}
+      </SystemMessage>
+    )
+
+    aiState.done({
+      ...aiState.get(),
+      messages: [
+        ...aiState.get().messages,
+        {
+          id: nanoid(),
+          role: 'system',
+          content: `[User has successfully created captioner workflow with id: {event_id}, youtube video url: ${captionerWorkerAdder.filePath}]`
         }
       ]
     })
@@ -524,6 +646,59 @@ async function submitUserMessage(content: string) {
             </BotCard>
           )
         }
+      },
+      showCaptionerWorkerUI: {
+        description:
+          'Show captioner worker ui. Use this if the user wants to add captioner worker.',
+        parameters: z.object({
+          youtubeUrl: z.string().describe('The youtube video url')
+        }),
+        generate: async function* ({ youtubeUrl }) {
+          const toolCallId = nanoid()
+
+          aiState.done({
+            ...aiState.get(),
+            messages: [
+              ...aiState.get().messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'tool-call',
+                    toolName: 'showCaptionerWorkerUI',
+                    toolCallId,
+                    args: { youtubeUrl }
+                  }
+                ]
+              },
+              {
+                id: nanoid(),
+                role: 'tool',
+                content: [
+                  {
+                    type: 'tool-result',
+                    toolName: 'showCaptionerWorkerUI',
+                    toolCallId,
+                    result: {
+                      youtubeUrl
+                    }
+                  }
+                ]
+              }
+            ]
+          })
+
+          return (
+            <BotCard>
+              <CaptionerUI
+                props={{
+                  status: 'requires_action'
+                }}
+              />
+            </BotCard>
+          )
+        }
       }
     }
   })
@@ -547,7 +722,8 @@ export type UIState = {
 export const AI = createAI<AIState, UIState>({
   actions: {
     submitUserMessage,
-    startConversion
+    startConversion,
+    startCaptioner
   },
   initialUIState: [],
   initialAIState: { chatId: nanoid(), messages: [] }
