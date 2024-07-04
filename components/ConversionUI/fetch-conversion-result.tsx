@@ -9,32 +9,26 @@ import { UserMessage } from '../stocks/message'
 import Button from '../button'
 
 interface FetchConversionResultProps {
-  sourceUrl: string
-  voiceConversionModel: string
   conversionId: string
+  children: React.ReactNode
+  inputMessage: string
 }
 
 export default function FetchConversionResult({
   conversionId,
-  sourceUrl,
-  voiceConversionModel
+  children,
+  inputMessage
 }: FetchConversionResultProps) {
   const [, setMessages] = useUIState<typeof AI>()
   const { submitUserMessage } = useActions()
 
-  const inputMessage = `I want to get conversion result with conversion id ${conversionId}.`
-
   return (
     <div>
-      <p className="mb-2">
-        You have created voice conversion workflow with id: {conversionId},
-        youtube video url: {sourceUrl} using ai voice model:{' '}
-        {voiceConversionModel}
-      </p>
+      {children}
 
       <Button
         onClick={async () => {
-          console.log(`voice conversion id: ${conversionId}`)
+          console.log(`conversion id: ${conversionId}`)
 
           setMessages(currentMessages => [
             ...currentMessages,
@@ -49,7 +43,7 @@ export default function FetchConversionResult({
           setMessages(currentMessages => [...currentMessages, responseMessage])
         }}
       >
-        Get voice conversion result
+        Get conversion result
       </Button>
     </div>
   )

@@ -5,6 +5,7 @@ import { makeRequest, endpoint } from '../base'
 
 export async function addCaptionerWorker(params: CaptionerWorkerAdder) {
   const newWorker = initCaptionerWorker(params)
+  console.log('🚀 ~ addCaptionerWorker ~ newWorker:', newWorker)
 
   return await makeRequest<WorkflowResponse>({
     method: 'POST',

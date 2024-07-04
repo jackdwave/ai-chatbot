@@ -8,9 +8,9 @@ import { CaptionerWorkerAdder } from '@/lib/models/Worker'
 
 import Button from '../button'
 
-// Force the page to be dynamic and allow streaming responses up to 200 seconds
+// Force the page to be dynamic and allow streaming responses up to 60 seconds
 export const dynamic = 'force-dynamic'
-export const maxDuration = 200
+export const maxDuration = 60
 
 const supportedDetectLanguages = [
   { key: 'zh-CN', label: 'chinese' },
@@ -200,6 +200,10 @@ export function CaptionerUI({
               autoDetectLanguages,
               speechTranslateTargetLanguages
             }
+            console.log(
+              '🚀 ~ onClick={ ~ captionerWorkerAddder:',
+              captionerWorkerAddder
+            )
 
             const response = await startCaptioner(captionerWorkerAddder)
             setConvertingUI(response.convertingUI)

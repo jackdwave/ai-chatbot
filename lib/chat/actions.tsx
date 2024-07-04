@@ -71,12 +71,12 @@ const renderErrorUI = (id: string) => {
   )
 }
 
-const renderProcessingUI = () => {
+const renderProcessingUI = (message = 'Processing...') => {
   return (
     <BotCard>
       <div className="inline-flex items-start gap-1 md:items-center mb-2">
         {spinner}
-        <p>Fetching...</p>
+        <p>{message}</p>
       </div>
     </BotCard>
   )
@@ -87,12 +87,7 @@ async function startConversion(workflowAdder: WorkflowAdder) {
 
   const aiState = getMutableAIState<typeof AI>()
 
-  const converting = createStreamableUI(
-    <div className="inline-flex items-start gap-1 md:items-center mb-2">
-      {spinner}
-      <p>Converting...</p>
-    </div>
-  )
+  const converting = createStreamableUI(renderProcessingUI())
 
   const { event_id } = await addWorkflow(workflowAdder)
 
@@ -104,9 +99,14 @@ async function startConversion(workflowAdder: WorkflowAdder) {
     converting.done(
       <FetchConversionResult
         conversionId={event_id}
-        sourceUrl={workflowAdder.sourceUrl}
-        voiceConversionModel={workflowAdder.voiceConversionModel}
-      />
+        inputMessage={`I want to get conversion result with conversion id ${event_id}.`}
+      >
+        <p className="mb-2">
+          You have created voice conversion workflow with id: {event_id},
+          youtube video url: {workflowAdder.sourceUrl} using ai voice model:{' '}
+          {workflowAdder.voiceConversionModel}
+        </p>
+      </FetchConversionResult>
     )
 
     systemMessage.done(
@@ -144,86 +144,32 @@ async function startCaptioner(captionerWorkerAdder: CaptionerWorkerAdder) {
 
   const aiState = getMutableAIState<typeof AI>()
 
-  const converting = createStreamableUI(
-    <div className="inline-flex items-start gap-1 md:items-center mb-2">
-      {spinner}
-      <p>processing...</p>
-    </div>
-  )
+  const converting = createStreamableUI(renderProcessingUI())
 
   let eventId = ''
-
-  try {
-    const { event_id } = await addCaptionerWorker(captionerWorkerAdder)
-    eventId = event_id
-  } catch (e) {
-    console.log('🚀 ~ startCaptioner ~ e:', e)
-  }
 
   const systemMessage = createStreamableUI(null)
 
   runAsyncFnWithoutBlocking(async () => {
     await sleep(3000)
 
-    let ready = false
-    let attemptsCount = 0
-    let youtubeUrl = ''
-    const downloadUrls = []
-
-    while (!ready && attemptsCount < 8) {
-      try {
-        const data = (await fetchEvent({ eventId })) as any
-
-        if (data.results.captioner_job) {
-          ready = true
-
-          const files: JobFile[] = data.results.captioner_job.files
-
-          for (const file of files) {
-            const filePath = file.path
-            const res = await downloadFile({ file_path: filePath })
-
-            downloadUrls.push({
-              label: file.label,
-              downloadUrl: res.download_url
-            })
-          }
-        }
-
-        if (data.jobs) {
-          youtubeUrl = data.jobs[0].files[0].path
-        }
-      } catch (e) {
-        console.log('🚀 ~ runAsyncFnWithoutBlocking ~ e:', e)
-        return renderErrorUI(eventId)
-      }
-
-      await sleep(5000)
+    try {
+      const { event_id } = await addCaptionerWorker(captionerWorkerAdder)
+      eventId = event_id
+    } catch (e) {
+      console.log('🚀 ~ startCaptioner ~ e:', e)
     }
-
-    const youtubeEmbedUrl = getYoutubeEmbedLink(youtubeUrl)
 
     converting.done(
       <>
-        {youtubeEmbedUrl && (
-          <div className="mb-4 aspect-[1920/1080] w-full max-w-[850px] border-2">
-            <iframe
-              src={youtubeEmbedUrl}
-              // eslint-disable-next-line tailwindcss/enforces-shorthand
-              className="h-full w-full border-0"
-              allowFullScreen
-            />
-          </div>
-        )}
-
-        {downloadUrls.map(({ label, downloadUrl }) => (
-          <div key={label}>
-            <p>{label}</p>
-            <Button>
-              <a href={downloadUrl}> download</a>
-            </Button>
-          </div>
-        ))}
+        <FetchConversionResult
+          conversionId={eventId}
+          inputMessage={`I want to get captioner worker event result with event id ${eventId}.`}
+        >
+          <p className="mb-2">
+            You have created voice captioner worker event with id: {eventId},
+          </p>
+        </FetchConversionResult>
       </>
     )
 
@@ -241,7 +187,7 @@ async function startCaptioner(captionerWorkerAdder: CaptionerWorkerAdder) {
         {
           id: nanoid(),
           role: 'system',
-          content: `[User has successfully created captioner workflow with id: {event_id}, youtube video url: ${captionerWorkerAdder.filePath}]`
+          content: `[User has successfully created captioner workflow with id: ${eventId}, youtube video url: ${captionerWorkerAdder.filePath}]`
         }
       ]
     })
@@ -285,9 +231,10 @@ async function submitUserMessage(content: string) {
     
     If the user requests to create a new voice conversion workflow, call \`show_voice_conversion_ui\` to show the VoiceConversion UI.
     If the user requests getting youtube video length, call \`get_youtube_length\` to get youtube video length in seconds.
+    If the user requests getting voice conversion event, call \`get_conversion_event\` to get conversion event result.
+    If the user requests getting captioner worker event, call \`get_captioner_worker_event\` to get captioner worker event result.
     If the user wants to complete another impossible task, respond that you are a demo and cannot do that.
-
-    Besides that, you can also chat with users and do some calculations if needed.`,
+    `,
     messages: [
       ...aiState.get().messages.map((message: any) => ({
         role: message.role,
@@ -414,11 +361,7 @@ async function submitUserMessage(content: string) {
           conversionId: z.string().describe('The voice conversion id')
         }),
         generate: async function* ({ conversionId }) {
-          yield (
-            <BotCard>
-              <StocksSkeleton />
-            </BotCard>
-          )
+          yield renderProcessingUI()
 
           console.log('🚀 ~ submitUserMessage ~ conversionId:', conversionId)
 
@@ -443,7 +386,9 @@ async function submitUserMessage(content: string) {
 
             await sleep(5000)
 
-            yield renderProcessingUI()
+            yield renderProcessingUI(
+              'It may take more than one minute to complete'
+            )
           }
 
           const toolCallId = nanoid()
@@ -586,6 +531,120 @@ async function submitUserMessage(content: string) {
           return (
             <BotCard>
               <div>conversion id: {conversionId}</div>
+            </BotCard>
+          )
+        }
+      },
+      getCaptionerWorkerEvent: {
+        description: 'Fetch captioner worker event result by eventId',
+        parameters: z.object({
+          eventId: z.string().describe('The voice conversion id')
+        }),
+        generate: async function* ({ eventId }) {
+          yield renderProcessingUI()
+
+          console.log('🚀 ~ submitUserMessage ~ conversionId:', eventId)
+
+          await sleep(1000)
+
+          const toolCallId = nanoid()
+
+          aiState.done({
+            ...aiState.get(),
+            messages: [
+              ...aiState.get().messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'tool-call',
+                    toolName: 'getCaptionerWorkerEvent',
+                    toolCallId,
+                    args: { eventId }
+                  }
+                ]
+              },
+              {
+                id: nanoid(),
+                role: 'tool',
+                content: [
+                  {
+                    type: 'tool-result',
+                    toolName: 'getCaptionerWorkerEvent',
+                    toolCallId,
+                    result: {
+                      eventId
+                    }
+                  }
+                ]
+              }
+            ]
+          })
+
+          let ready = false
+          let attemptsCount = 0
+          let youtubeUrl = ''
+          const downloadUrls = []
+
+          while (!ready && attemptsCount < 8) {
+            try {
+              const data = (await fetchEvent({ eventId })) as any
+
+              if (data.results.captioner_job) {
+                ready = true
+
+                const files: JobFile[] = data.results.captioner_job.files
+
+                for (const file of files) {
+                  const filePath = file.path
+                  const res = await downloadFile({ file_path: filePath })
+
+                  downloadUrls.push({
+                    label: file.label,
+                    downloadUrl: res.download_url
+                  })
+                }
+              }
+
+              if (data.jobs) {
+                youtubeUrl = data.jobs[0].files[0].path
+              }
+            } catch (e) {
+              console.log('🚀 ~ runAsyncFnWithoutBlocking ~ e:', e)
+              return renderErrorUI(eventId)
+            }
+
+            await sleep(5000)
+
+            yield renderProcessingUI(
+              'It may take more than one minute to complete'
+            )
+          }
+
+          const youtubeEmbedUrl = getYoutubeEmbedLink(youtubeUrl)
+
+          return (
+            <BotCard>
+              {youtubeEmbedUrl && (
+                <div className="mb-4 aspect-[1920/1080] w-full max-w-[850px] border-2">
+                  <iframe
+                    src={youtubeEmbedUrl}
+                    // eslint-disable-next-line tailwindcss/enforces-shorthand
+                    className="h-full w-full border-0"
+                    allowFullScreen
+                  />
+                </div>
+              )}
+
+              {downloadUrls.map(({ label, downloadUrl }) => (
+                <div key={label}>
+                  <p>{label}</p>
+                  <Button>
+                    <a href={downloadUrl}> download</a>
+                  </Button>
+                </div>
+              ))}
             </BotCard>
           )
         }

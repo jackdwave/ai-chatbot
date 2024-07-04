@@ -5,6 +5,10 @@ import { auth } from '@/auth'
 import { Session } from '@/lib/types'
 import { getMissingKeys } from '@/app/actions'
 
+// Force the page to be dynamic and allow streaming responses up to 30 seconds
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
 export const metadata = {
   title: 'Next.js AI Chatbot'
 }

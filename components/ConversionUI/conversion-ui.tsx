@@ -8,10 +8,6 @@ import type { AI } from '@/lib/chat/actions'
 import { WorkflowAdder } from '@/lib/models/Workflow'
 import Button from '../button'
 
-// Force the page to be dynamic and allow streaming responses up to 30 seconds
-export const dynamic = 'force-dynamic'
-export const maxDuration = 30
-
 type ConversionPhase = 'select_ai_model' | 'insert_youtube_url' | 'confirm'
 
 const initWorkflowAdder: WorkflowAdder = {
