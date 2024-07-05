@@ -71,12 +71,17 @@ const renderErrorUI = (id: string) => {
   )
 }
 
-const renderProcessingUI = (message = 'Processing...') => {
+interface ProcessingUI {
+  message?: string
+  showAvatar?: boolean
+}
+
+const ProcessingUI = ({ message, showAvatar = true }: ProcessingUI) => {
   return (
-    <BotCard>
+    <BotCard showAvatar={showAvatar}>
       <div className="inline-flex items-start gap-1 md:items-center mb-2">
         {spinner}
-        <p>{message}</p>
+        <p>{message ?? 'Processing....'}</p>
       </div>
     </BotCard>
   )
@@ -87,7 +92,7 @@ async function startConversion(workflowAdder: WorkflowAdder) {
 
   const aiState = getMutableAIState<typeof AI>()
 
-  const converting = createStreamableUI(renderProcessingUI())
+  const converting = createStreamableUI(<ProcessingUI showAvatar={false} />)
 
   const { event_id } = await addWorkflow(workflowAdder)
 
@@ -144,7 +149,7 @@ async function startCaptioner(captionerWorkerAdder: CaptionerWorkerAdder) {
 
   const aiState = getMutableAIState<typeof AI>()
 
-  const converting = createStreamableUI(renderProcessingUI())
+  const converting = createStreamableUI(<ProcessingUI showAvatar={false} />)
 
   let eventId = ''
 
@@ -226,13 +231,17 @@ async function submitUserMessage(content: string) {
     model: azure(AZURE_DEPLOYMENT_NAME) as LanguageModel,
     initial: <SpinnerMessage />,
     system: `\
-    You are an AI music conversation bot and your main mission is to help users do voice conversion task using youtube videos.
-    By this I mean, users can provide a youtube link with A singer singing, and then our app will process this audio file to another B singer singing voice.
+    You are an AI music conversation bot and your main mission is to help users do different processing tasks using youtube videos as input.
+    By this I mean, users can provide a youtube link and then our app will process this audio accordingly.
     
-    If the user requests to create a new voice conversion workflow, call \`show_voice_conversion_ui\` to show the VoiceConversion UI.
-    If the user requests getting youtube video length, call \`get_youtube_length\` to get youtube video length in seconds.
-    If the user requests getting voice conversion event, call \`get_conversion_event\` to get conversion event result.
+    If the user requests to do voice conversion, call \`show_voice_conversion_ui\` to show the VoiceConversion UI. This UI component allows users to convert A singer voice to another B singer voice by selecting a pre-trained B singer voice AI model.
+    If the user requests to do get subtile captions for a youtube video, call \`show_captioner_worker_ui\` to show the CaptionerWorker UI. This UI component allows users to select which languages to detect from the youtube video, and then output caption subtitle in srt file format.
+    
+    If the user requests getting voice conversion event result, call \`get_conversion_event\` to get conversion event result.
     If the user requests getting captioner worker event, call \`get_captioner_worker_event\` to get captioner worker event result.
+
+    If the user requests getting youtube video length, call \`get_youtube_length\` to get youtube video length in seconds.
+
     If the user wants to complete another impossible task, respond that you are a demo and cannot do that.
     `,
     messages: [
@@ -361,7 +370,7 @@ async function submitUserMessage(content: string) {
           conversionId: z.string().describe('The voice conversion id')
         }),
         generate: async function* ({ conversionId }) {
-          yield renderProcessingUI()
+          yield <ProcessingUI />
 
           console.log('🚀 ~ submitUserMessage ~ conversionId:', conversionId)
 
@@ -386,8 +395,8 @@ async function submitUserMessage(content: string) {
 
             await sleep(5000)
 
-            yield renderProcessingUI(
-              'It may take more than one minute to complete'
+            yield (
+              <ProcessingUI message="It may take more than one minute to complete" />
             )
           }
 
@@ -541,7 +550,7 @@ async function submitUserMessage(content: string) {
           eventId: z.string().describe('The voice conversion id')
         }),
         generate: async function* ({ eventId }) {
-          yield renderProcessingUI()
+          yield <ProcessingUI />
 
           console.log('🚀 ~ submitUserMessage ~ conversionId:', eventId)
 
@@ -617,8 +626,8 @@ async function submitUserMessage(content: string) {
 
             await sleep(5000)
 
-            yield renderProcessingUI(
-              'It may take more than one minute to complete'
+            yield (
+              <ProcessingUI message="It may take more than one minute to complete" />
             )
           }
 
